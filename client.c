@@ -20,7 +20,7 @@
 #define INOTIFY 4
 #define FEATURES 5
 #define NAMESZ 256
-#define BUF_LEN (64 * (sizeof(struct inotify_event) + 256))
+#define BUF_LEN (32 * (sizeof(struct inotify_event) + 256))
 #define MSG_LEN (BUF_LEN+NAMESZ+256)
 #define error(msg) {perror(msg); exit(1);}
 
@@ -74,24 +74,26 @@ int watch_directory(char *path) {
 }
 
 //check file events
-void read_file_events() {
+char *read_file_events() {
     char buf[BUF_LEN];
+    char *res = (char *) malloc(BUF_LEN);
+    strcpy(res, "");
     struct inotify_event *event;
-    printf("Before read\n");
     ssize_t nread = read(inotify_fd, buf, BUF_LEN);
-    printf("After read\n");
     if (nread == -1 && errno != EAGAIN) error("read from inotify");
-    if (nread <= 0)return;
+    if (nread <= 0)return res;
     printf("Read %ld bytes from inotify fd\n", (long) nread);
 
     //process events in buffer
     for (char *p = buf; p < buf + nread;) {
         event = (struct inotify_event *) p;
         char *info = strinotify(event);
-        printf("%s", info);
+        //printf("%s", info);
+        strcat(res, info);
         free(info);
         p += sizeof(struct inotify_event) + event->len;
     }
+    return res;
 }
 
 //number of running processes
@@ -160,6 +162,36 @@ double load_avg() {
             ((b[0] + b[1] + b[2] + b[3]) - (a[0] + a[1] + a[2] + a[3])));
 }
 
+void status_msg(char *msg) {
+    strcpy(msg, "");
+    char temp[512];
+    if (subscribed[USERS]) {
+        sprintf(temp, "Users: %lu ", users_total());
+        strcat(msg, temp);
+    }
+    if (subscribed[MEMORY]) {
+        unsigned long long t = mem_total();
+        unsigned long long a = mem_available();
+        sprintf(temp, "Total memory: %.3lfM Available memory: %.3lfM %% used: %lf ", (double) t / 1000000,
+                (double) a / 1000000, (double) (t - a) / t);
+        strcat(msg, temp);
+    }
+    if (subscribed[PROCESSES]) {
+        sprintf(temp, "Processes: %lu ", processes_total());
+        strcat(msg, temp);
+    }
+    if (subscribed[LOAD]) {
+        sprintf(temp, "Load %lf ", load_avg());
+        strcat(msg, temp);
+    }
+    if (subscribed[INOTIFY]) {
+        char *t = read_file_events();
+        strcat(msg, t);
+        free(t);
+    }
+    strcat(msg, "\n");
+}
+
 void init() {
     for (int i = 0; i < FEATURES; i++) {
         features[i] = 1; //presume all available
@@ -217,10 +249,11 @@ int main(int argc, char *argv[]) {
     //parse args
     strcpy(name, argv[1]);
     printf("We who think we are about to die will laugh at anything.\n");
-    printf("P: %lu U: %lu Load: %lf Total memory: %llu Available memory: %llu %lf\n", processes_total(), users_total(),
-           load_avg(),
-           mem_total(), mem_available(), (double) mem_available() / mem_total());
+    char msg[MSG_LEN];
     init();
+    for (int i = 0; i < FEATURES; i++)subscribed[i] = 1;
+    status_msg(msg);
+    printf("%s", msg);
     //conn(argv[2],argv[3]);
     /*if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");
     read_file_events();
