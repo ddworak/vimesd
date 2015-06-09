@@ -259,15 +259,15 @@ void handle_command(struct fmsg fmsg) {
 }
 
 int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        printf("usage: %s name hostname port\n", argv[0]);
+        return 0;
+    }
     struct timeval mtv, tv;
     mtv.tv_sec = 2;
     mtv.tv_usec = 0;
     fd_set master, readfds;
     ssize_t nbytes;
-    if (argc != 4) {
-        printf("usage: %s name hostname port\n", argv[0]);
-        return 0;
-    }
     //parse args
     strcpy(name, argv[1]);
     printf("We who think we are about to die will laugh at anything.\n");

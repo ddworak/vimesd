@@ -205,6 +205,10 @@ void handle_stdin() {
 }
 
 int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("usage: %s port\n", argv[0]);
+        return 0;
+    }
     struct timeval mtv, tv;
     mtv.tv_sec = 2;
     mtv.tv_usec = 0;
@@ -220,10 +224,7 @@ int main(int argc, char *argv[]) {
     biggest = sock_fd;
     volatile int on_next = 0;
     fd_set readfds;
-    if (argc != 2) {
-        printf("usage: %s port\n", argv[0]);
-        return 0;
-    }
+
     for (ever) {
         readfds = master;
         tv = mtv;
