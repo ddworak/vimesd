@@ -1,14 +1,17 @@
+#define _XOPEN_SOURCE 500
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <utmp.h>
 #include <dirent.h>
-#include <ctype.h>
 #include <string.h>
 #include <sys/inotify.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <ctype.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 #define USERS 0
 #define MEMORY 1
@@ -16,14 +19,26 @@
 #define LOAD 3
 #define INOTIFY 4
 #define FEATURES 5
-#define error(msg) {perror(msg); exit(1);}
+#define NAMESZ 256
 #define BUF_LEN (64 * (sizeof(struct inotify_event) + 256))
+#define MSG_LEN (BUF_LEN+NAMESZ+256)
+#define error(msg) {perror(msg); exit(1);}
 
-int features[FEATURES];
-int subscribed[FEATURES];
+char features[FEATURES];
+char subscribed[FEATURES];
 
-int inotify_fd;
+int inotify_fd, sock_fd;
+char name[NAMESZ];
 
+struct reg_msg {
+    char name[NAMESZ];
+    char features[FEATURES];
+};
+
+struct info_msg {
+    char name[NAMESZ];
+    char msg[MSG_LEN];
+};
 
 //format info from inotify_event structure
 char *strinotify(struct inotify_event *i) {
@@ -156,15 +171,60 @@ void init() {
     else fcntl(inotify_fd, F_SETFL, O_NONBLOCK); //set to non-blocking
 }
 
-int main() {
+void *get_addr(struct sockaddr *sa) {
+    return &(((struct sockaddr_in *) sa)->sin_addr);
+}
+
+void conn(char *host, char *port) {
+    //internet socket
+    int rv;
+    char s[1000];
+    struct addrinfo hints, *servinfo, *p;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        exit(1);
+    }
+    for (p = servinfo; p != NULL; p = p->ai_next) { //loop through suitable results and make a socket
+        if ((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+            perror("socket");
+            continue;
+        }
+        if (connect(sock_fd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sock_fd);
+            perror("connect");
+            continue;
+        }
+        break;
+    }
+    if (p == NULL) {
+        fprintf(stderr, "connection failed\n");
+        exit(1);
+    }
+    inet_ntop(p->ai_family, get_addr(p->ai_addr), s, sizeof s);
+    printf("info: connected to %s\n", s);
+    freeaddrinfo(servinfo);
+}
+
+
+int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        printf("usage: %s name hostname port\n", argv[0]);
+        return 0;
+    }
+    //parse args
+    strcpy(name, argv[1]);
     printf("We who think we are about to die will laugh at anything.\n");
-    printf("P: %lu U: %lu Load: %lf Total mem: %llu Available: %llu %lf\n", processes_total(), users_total(),
+    printf("P: %lu U: %lu Load: %lf Total memory: %llu Available memory: %llu %lf\n", processes_total(), users_total(),
            load_avg(),
            mem_total(), mem_available(), (double) mem_available() / mem_total());
     init();
-    if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");
+    //conn(argv[2],argv[3]);
+    /*if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");
     read_file_events();
     sleep(10);
-    read_file_events();
+    read_file_events();*/
     return 0;
 }
