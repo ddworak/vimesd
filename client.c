@@ -73,10 +73,8 @@ char *strinotify(struct inotify_event *i) {
 //add file to watched
 int watch_directory(char *path) {
     struct stat s;
-    if (stat(path, &s) != 0 || !S_ISDIR(s.st_mode)) {
-        printf("stat %s\n", path);
+    if (stat(path, &s) != 0 || !S_ISDIR(s.st_mode))
         return -1;
-    }
     return inotify_add_watch(inotify_fd, path, IN_ALL_EVENTS);
 }
 
@@ -89,7 +87,7 @@ char *check_file_events() {
     ssize_t nread = read(inotify_fd, buf, BUF_LEN);
     if (nread == -1 && errno != EAGAIN) error("read from inotify");
     if (nread <= 0)return res;
-    printf("Read %ld bytes from inotify fd\n", (long) nread);
+    //printf("Read %ld bytes from inotify fd\n", (long) nread);
 
     //process events in buffer
     for (char *p = buf; p < buf + nread;) {
@@ -121,6 +119,7 @@ unsigned long processes_total() {
     }
     else {
         perror("opendir");
+        features[PROCESSES] = 0;
         return 0;
     }
     return processes;
@@ -131,7 +130,10 @@ unsigned long users_total() {
     unsigned long users = 0;
     struct utmp usr;
     FILE *ufp = fopen(_PATH_UTMP, "r");
-    if (!ufp) error("fopen");
+    if (!ufp) {
+        features[USERS] = 0;
+        return 0;
+    }
     while (fread((char *) &usr, sizeof(usr), 1, ufp) == 1)
         if (*usr.ut_name && *usr.ut_line && *usr.ut_line != '~')
             users++;
@@ -188,12 +190,10 @@ void status_msg(char *msg) {
     }
     if (subscribed[LOAD]) {
         sprintf(temp, "Load %lf ", load_avg());
-        printf("Checked L\n");
         strcat(msg, temp);
     }
     if (subscribed[INOTIFY]) {
         char *t = check_file_events();
-        printf("%s", t);
         strcat(msg, t);
         free(t);
     }
@@ -277,6 +277,7 @@ int main(int argc, char *argv[]) {
     FD_SET(sock_fd, &master);
     struct msg buf;
     strcpy(buf.name, name);
+    status_msg(buf.text);
     for (ever) {
         for (int i = 0; i < FEATURES; i++)
             buf.features[i] = features[i];

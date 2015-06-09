@@ -214,7 +214,6 @@ int main(int argc, char *argv[]) {
     mtv.tv_usec = 0;
     //parse args
     strcpy(port, argv[1]);
-    quit();
     printf("Ninety per cent of most magic merely consists of knowing one extra fact.\n");
     init();
     conn();
@@ -224,7 +223,6 @@ int main(int argc, char *argv[]) {
     biggest = sock_fd;
     volatile int on_next = 0;
     fd_set readfds;
-
     for (ever) {
         readfds = master;
         tv = mtv;
