@@ -253,7 +253,7 @@ int main(int argc, char *argv[]) {
     conn(argv[2], argv[3]);
     struct msg buf;
     strcpy(buf.name, name);
-    for (; ; sleep(5)) {
+    for (; ; sleep(2)) {
         for (int i = 0; i < FEATURES; i++)buf.features[i] = features[i];
         status_msg(buf.text);
         ssize_t nbytes = send(sock_fd, &buf, sizeof(struct msg), 0);

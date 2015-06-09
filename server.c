@@ -23,6 +23,7 @@
 #define NAMESZ 256
 #define BUF_LEN (64 * (sizeof(struct inotify_event) + 256))
 #define MSG_LEN (BUF_LEN+NAMESZ+256)
+#define ADDR_LEN 20
 #define MAXCLIENTS 100
 #define error(msg) {perror(msg); exit(1);}
 
@@ -32,14 +33,18 @@ struct msg {
     char features[FEATURES];
 };
 
+void free_client(int i);
+
 int sock_fd;
 int biggest;
 int available = MAXCLIENTS;
 fd_set master;
 char port[10];
-char names[MAXCLIENTS];
-char addresses[MAXCLIENTS];
+char names[MAXCLIENTS][NAMESZ];
+int fds[MAXCLIENTS];
+char addresses[MAXCLIENTS][ADDR_LEN];
 char last_status[MAXCLIENTS][MSG_LEN];
+char features[MAXCLIENTS][FEATURES];
 
 void *get_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in *) sa)->sin_addr);
@@ -96,10 +101,14 @@ void handle_reg() {
     socklen_t addrlen = sizeof remoteaddr;
     int newfd = accept(sock_fd, &remoteaddr, &addrlen);
     if (newfd == -1) error("accept");
-    if (available) {
+    if (available--) {
         FD_SET(newfd, &master); //add to "selected"
         if (newfd > biggest)biggest = newfd;
-        printf("info: new connection\n");
+        int i;
+        for (i = 0; i < MAXCLIENTS && fds[i] != -1; i++); //find id
+        inet_ntop(AF_INET, get_addr(&remoteaddr), addresses[i], ADDR_LEN);
+        fds[i] = newfd;
+        strcpy(last_status[i], "Up\n");
     }
     else {
         close(newfd);
@@ -109,18 +118,22 @@ void handle_reg() {
 
 void handle_msg(int fd) { //sth waiting
     struct msg buf;
-    ssize_t numbytes;
-    if ((numbytes = recv(fd, &buf, sizeof(struct msg), 0)) == -1) error("recv");
-    if (numbytes <= 0) {
+    ssize_t nbytes;
+    if ((nbytes = recv(fd, &buf, sizeof(struct msg), 0)) == -1) error("recv");
+    int i;
+    for (i = 0; i < MAXCLIENTS && fds[i] != fd; i++); //find id
+    if (nbytes <= 0) {
         //disconnected
-        printf("info: client disconnected\n");
         close(fd);
         FD_CLR(fd, &master);
+        strcpy(last_status[i], "Down\n");
+        for (int f = 0; i < FEATURES; i++)features[i][f] = 0;
     }
     else {
         //received client msg
-        printf("info: got packet from %s\n%s", buf.name, buf.text);
-        //todo behaviour
+        strcpy(names[i], buf.name);
+        strcpy(last_status[i], buf.text);
+        strcpy(features[i], buf.features);
     }
 }
 
@@ -130,24 +143,37 @@ void quit(int nvm) {
     exit(0);
 }
 
+void init() {
+    for (int i = 0; i < MAXCLIENTS; i++)free_client(i);
+}
+
+void free_client(int i) {
+    fds[i] = -1;
+    strcpy(names[i], "");
+    strcpy(last_status[i], "");
+    strcpy(addresses[i], "");
+    for (int f = 0; f < FEATURES; f++)features[i][f] = 0;
+    available++;
+}
 int main(int argc, char *argv[]) {
     struct timeval mtv, tv;
     mtv.tv_sec = 2;
     mtv.tv_usec = 0;
+    //parse args
+    strcpy(port, argv[1]);
+    signal(SIGINT, quit);
+    printf("Ninety per cent of most magic merely consists of knowing one extra fact.\n");
+    init();
+    conn();
     FD_ZERO(&master);
     FD_SET(sock_fd, &master);
     biggest = sock_fd;
+    int on_next = 0;
     fd_set readfds;
     if (argc != 2) {
         printf("usage: %s port\n", argv[0]);
         return 0;
     }
-    //parse args
-    strcpy(port, argv[1]);
-    signal(SIGINT, quit);
-    printf("Ninety per cent of most magic merely consists of knowing one extra fact.\n");
-
-    conn();
     for (ever) {
         readfds = master;
         tv = mtv;
@@ -157,7 +183,18 @@ int main(int argc, char *argv[]) {
                 if (i == sock_fd)handle_reg();
                 else handle_msg(i);
             }
-        printf("Waiting...\n");
+        if (!on_next && tv.tv_sec != 0)on_next = 1;
+        else {
+            system("clear");
+            for (int i = 0; i < MAXCLIENTS; i++) {
+                if (fds[i] != -1) {
+                    printf("\n%s %s %s", addresses[i], names[i], last_status[i]);
+                    if (!strcmp(last_status[i], "Down\n"))free_client(i);
+                }
+            }
+            on_next = 0;
+        }
     }
+
     return 0;
 }
