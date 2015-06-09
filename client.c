@@ -30,14 +30,10 @@ char subscribed[FEATURES];
 int inotify_fd, sock_fd;
 char name[NAMESZ];
 
-struct reg_msg {
+struct msg {
     char name[NAMESZ];
+    char text[MSG_LEN];
     char features[FEATURES];
-};
-
-struct info_msg {
-    char name[NAMESZ];
-    char msg[MSG_LEN];
 };
 
 //format info from inotify_event structure
@@ -74,7 +70,7 @@ int watch_directory(char *path) {
 }
 
 //check file events
-char *read_file_events() {
+char *check_file_events() {
     char buf[BUF_LEN];
     char *res = (char *) malloc(BUF_LEN);
     strcpy(res, "");
@@ -172,8 +168,8 @@ void status_msg(char *msg) {
     if (subscribed[MEMORY]) {
         unsigned long long t = mem_total();
         unsigned long long a = mem_available();
-        sprintf(temp, "Total memory: %.3lfM Available memory: %.3lfM %% used: %lf ", (double) t / 1000000,
-                (double) a / 1000000, (double) (t - a) / t);
+        sprintf(temp, "Total memory: %.3lfM Available memory: %.3lfM %.2lf%% used ", (double) t / 1000000,
+                (double) a / 1000000, 100 * (double) (t - a) / t);
         strcat(msg, temp);
     }
     if (subscribed[PROCESSES]) {
@@ -185,7 +181,7 @@ void status_msg(char *msg) {
         strcat(msg, temp);
     }
     if (subscribed[INOTIFY]) {
-        char *t = read_file_events();
+        char *t = check_file_events();
         strcat(msg, t);
         free(t);
     }
@@ -254,10 +250,15 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < FEATURES; i++)subscribed[i] = 1;
     status_msg(msg);
     printf("%s", msg);
-    //conn(argv[2],argv[3]);
-    /*if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");
-    read_file_events();
-    sleep(10);
-    read_file_events();*/
+    conn(argv[2], argv[3]);
+    struct msg buf;
+    strcpy(buf.name, name);
+    for (; ; sleep(5)) {
+        for (int i = 0; i < FEATURES; i++)buf.features[i] = features[i];
+        status_msg(buf.text);
+        ssize_t nbytes = send(sock_fd, &buf, sizeof(struct msg), 0);
+        if (nbytes <= 0) error("disconnected");
+    }
+    /*if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");*/
     return 0;
 }
