@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 500
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -12,6 +13,8 @@
 #include <ctype.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+
+#define ever ;;
 
 #define USERS 0
 #define MEMORY 1
@@ -34,6 +37,11 @@ struct msg {
     char name[NAMESZ];
     char text[MSG_LEN];
     char features[FEATURES];
+};
+
+struct fmsg {
+    char feature;
+    char path[BUF_LEN];
 };
 
 //format info from inotify_event structure
@@ -65,7 +73,10 @@ char *strinotify(struct inotify_event *i) {
 //add file to watched
 int watch_directory(char *path) {
     struct stat s;
-    if (stat(path, &s) != 0 || !S_ISDIR(s.st_mode))return -1;
+    if (stat(path, &s) != 0 || !S_ISDIR(s.st_mode)) {
+        printf("stat %s\n", path);
+        return -1;
+    }
     return inotify_add_watch(inotify_fd, path, IN_ALL_EVENTS);
 }
 
@@ -84,7 +95,6 @@ char *check_file_events() {
     for (char *p = buf; p < buf + nread;) {
         event = (struct inotify_event *) p;
         char *info = strinotify(event);
-        //printf("%s", info);
         strcat(res, info);
         free(info);
         p += sizeof(struct inotify_event) + event->len;
@@ -178,10 +188,12 @@ void status_msg(char *msg) {
     }
     if (subscribed[LOAD]) {
         sprintf(temp, "Load %lf ", load_avg());
+        printf("Checked L\n");
         strcat(msg, temp);
     }
     if (subscribed[INOTIFY]) {
         char *t = check_file_events();
+        printf("%s", t);
         strcat(msg, t);
         free(t);
     }
@@ -194,8 +206,10 @@ void init() {
         subscribed[i] = 0;
     }
     inotify_fd = inotify_init(); //inotify instance
-    if (inotify_fd == -1)
+    if (inotify_fd == -1) {
         features[INOTIFY] = 0;
+        printf("No inotify available\n");
+    }
     else fcntl(inotify_fd, F_SETFL, O_NONBLOCK); //set to non-blocking
 }
 
@@ -236,8 +250,20 @@ void conn(char *host, char *port) {
     freeaddrinfo(servinfo);
 }
 
+void handle_command(struct fmsg fmsg) {
+    if (fmsg.feature == INOTIFY) if (watch_directory(fmsg.path) == -1) {
+        perror("inotify_add_watch");
+        return;
+    }
+    subscribed[(int) fmsg.feature] = 1;
+}
 
 int main(int argc, char *argv[]) {
+    struct timeval mtv, tv;
+    mtv.tv_sec = 2;
+    mtv.tv_usec = 0;
+    fd_set master, readfds;
+    ssize_t nbytes;
     if (argc != 4) {
         printf("usage: %s name hostname port\n", argv[0]);
         return 0;
@@ -245,20 +271,31 @@ int main(int argc, char *argv[]) {
     //parse args
     strcpy(name, argv[1]);
     printf("We who think we are about to die will laugh at anything.\n");
-    char msg[MSG_LEN];
     init();
-    for (int i = 0; i < FEATURES; i++)subscribed[i] = 1;
-    status_msg(msg);
-    printf("%s", msg);
     conn(argv[2], argv[3]);
+    FD_ZERO(&master);
+    FD_SET(sock_fd, &master);
     struct msg buf;
     strcpy(buf.name, name);
-    for (; ; sleep(2)) {
-        for (int i = 0; i < FEATURES; i++)buf.features[i] = features[i];
+    for (ever) {
+        for (int i = 0; i < FEATURES; i++)
+            buf.features[i] = features[i];
         status_msg(buf.text);
-        ssize_t nbytes = send(sock_fd, &buf, sizeof(struct msg), 0);
+        nbytes = send(sock_fd, &buf, sizeof(struct msg), 0);
         if (nbytes <= 0) error("disconnected");
+        readfds = master;
+        tv = mtv;
+        select(sock_fd + 1, &readfds, NULL, NULL, &tv);
+        if (FD_ISSET(sock_fd, &readfds)) {
+            struct fmsg rbuf;
+            if (recv(sock_fd, &rbuf, sizeof(struct fmsg), 0) <= 0) {
+                printf("Disconnected\n");
+                return 0;
+            }
+            handle_command(rbuf);
+        }
     }
-    /*if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");*/
+
     return 0;
 }
+

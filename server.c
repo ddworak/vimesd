@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 500
+
 #include <sys/inotify.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,8 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <pthread.h>
-#include <signal.h>
+#include <termios.h>
 
 #define ever ;;
 
@@ -21,7 +21,7 @@
 #define INOTIFY 4
 #define FEATURES 5
 #define NAMESZ 256
-#define BUF_LEN (64 * (sizeof(struct inotify_event) + 256))
+#define BUF_LEN (32 * (sizeof(struct inotify_event) + 256))
 #define MSG_LEN (BUF_LEN+NAMESZ+256)
 #define ADDR_LEN 20
 #define MAXCLIENTS 100
@@ -31,6 +31,11 @@ struct msg {
     char name[NAMESZ];
     char text[MSG_LEN];
     char features[FEATURES];
+};
+
+struct fmsg {
+    char feature;
+    char path[BUF_LEN];
 };
 
 void free_client(int i);
@@ -45,34 +50,20 @@ int fds[MAXCLIENTS];
 char addresses[MAXCLIENTS][ADDR_LEN];
 char last_status[MAXCLIENTS][MSG_LEN];
 char features[MAXCLIENTS][FEATURES];
+static struct termios oldt;
 
 void *get_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in *) sa)->sin_addr);
 }
 
-void *th_stdin(void *nvm) {
-    //int numbytes;
-    //struct msg buf;
-    //strcpy(buf.name,client_name);
-    //while(fgets(buf.text, TXTSZ, stdin) != NULL) {
-    //strip newline
-    //    char *pos;
-    //    if ((pos=strchr(buf.text, '\n')) != NULL)*pos = '\0';
-    //numbytes = send(sockfd,&buf,sizeof(struct msg),0);
-    //    if(numbytes <= 0)error("disconnected");
-    //}
-    pthread_exit(NULL);
-}
-
 void conn() {
-    int rv;
     struct addrinfo hints, *servinfo, *p;
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_INET; // AF_INET -> force IPv4, AF_UNSPEC -> v4/v6
     hints.ai_socktype = SOCK_STREAM; //stream
     hints.ai_flags = AI_PASSIVE; // use any of host's network addresses
 
-    if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) //get possible socket addresses
+    if ((getaddrinfo(NULL, port, &hints, &servinfo)) != 0) //get possible socket addresses
     error("getaddrinfo");
 
     for (p = servinfo; p != NULL; p = p->ai_next) {  //bind to first available
@@ -133,18 +124,32 @@ void handle_msg(int fd) { //sth waiting
         //received client msg
         strcpy(names[i], buf.name);
         strcpy(last_status[i], buf.text);
-        strcpy(features[i], buf.features);
+        for (int f = 0; f < FEATURES; f++)features[i][f] = buf.features[f];
     }
 }
 
-void quit(int nvm) {
+void set_stdin() {
+    static struct termios newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON); //no stdin buffering to return, select asap
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+}
+
+void restore_stdin() {
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+}
+
+void quit() {
     for (int i = 0; i <= biggest; i++)
         if (FD_ISSET(i, &master))close(i);
+    restore_stdin();
     exit(0);
 }
 
 void init() {
     for (int i = 0; i < MAXCLIENTS; i++)free_client(i);
+    set_stdin();
 }
 
 void free_client(int i) {
@@ -155,20 +160,65 @@ void free_client(int i) {
     for (int f = 0; f < FEATURES; f++)features[i][f] = 0;
     available++;
 }
+
+void handle_stdin() {
+    char command[10];
+    getchar();
+    system("clear");
+    printf("\nEnter client number: ");
+    if (!fgets(command, 10, stdin))return;
+    int i = atoi(command);
+    if (i < 0 || i >= MAXCLIENTS || fds[i] == -1)return;
+    printf("\nAvailable features (%d): \n", i);
+    if (features[i][USERS])printf("u: Number of users\n");
+    if (features[i][MEMORY])printf("m: Memory\n");
+    if (features[i][PROCESSES])printf("p: Running processes\n");
+    if (features[i][LOAD])printf("l: Load avg\n");
+    if (features[i][INOTIFY])printf("i: Directory changes\n");
+    int c = getchar();
+    struct fmsg buf;
+    strcpy(buf.path, "");
+    switch (c) {
+        case 'u':
+            buf.feature = USERS;
+            break;
+        case 'm':
+            buf.feature = MEMORY;
+            break;
+        case 'p':
+            buf.feature = PROCESSES;
+            break;
+        case 'l':
+            buf.feature = LOAD;
+            break;
+        case 'i':
+            buf.feature = INOTIFY;
+            printf("\nEnter directory path: ");
+            if (!fgets(buf.path, BUF_LEN, stdin))return;
+            char *pos;
+            if ((pos = strchr(buf.path, '\n')) != NULL)*pos = '\0'; //strip newline
+            break;
+        default:
+            return;
+    }
+    send(fds[i], &buf, sizeof(buf), 0);
+}
+
 int main(int argc, char *argv[]) {
     struct timeval mtv, tv;
     mtv.tv_sec = 2;
     mtv.tv_usec = 0;
     //parse args
     strcpy(port, argv[1]);
-    signal(SIGINT, quit);
+    quit();
     printf("Ninety per cent of most magic merely consists of knowing one extra fact.\n");
     init();
     conn();
     FD_ZERO(&master);
     FD_SET(sock_fd, &master);
+    FD_SET(STDIN_FILENO, &master);
     biggest = sock_fd;
-    int on_next = 0;
+    volatile int on_next = 0;
     fd_set readfds;
     if (argc != 2) {
         printf("usage: %s port\n", argv[0]);
@@ -181,14 +231,16 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i <= biggest; i++)
             if (FD_ISSET(i, &readfds)) {
                 if (i == sock_fd)handle_reg();
+                else if (i == STDIN_FILENO)handle_stdin();
                 else handle_msg(i);
             }
         if (!on_next && tv.tv_sec != 0)on_next = 1;
         else {
             system("clear");
+            printf("Press any key to set client features.\n");
             for (int i = 0; i < MAXCLIENTS; i++) {
                 if (fds[i] != -1) {
-                    printf("\n%s %s %s", addresses[i], names[i], last_status[i]);
+                    printf("\n%d. %s %s %s", i, addresses[i], names[i], last_status[i]);
                     if (!strcmp(last_status[i], "Down\n"))free_client(i);
                 }
             }
