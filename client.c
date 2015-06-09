@@ -8,6 +8,7 @@
 #include <sys/inotify.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #define USERS 0
 #define MEMORY 1
@@ -16,7 +17,7 @@
 #define INOTIFY 4
 #define FEATURES 5
 #define error(msg) {perror(msg); exit(1);}
-#define BUF_LEN (10 * (sizeof(struct inotify_event) + 256))
+#define BUF_LEN (64 * (sizeof(struct inotify_event) + 256))
 
 int features[FEATURES];
 int subscribed[FEATURES];
@@ -27,45 +28,48 @@ int inotify_fd;
 //format info from inotify_event structure
 char *strinotify(struct inotify_event *i) {
     char *info = (char *) malloc(512);
-    strcpy(info, "File ");
+    strcpy(info, "");
     if (i->len > 0)strcat(info, i->name);
-    strcat(info, " changed:");
-    if (i->mask & IN_ACCESS) strcpy(info, " IN_ACCESS");
-    if (i->mask & IN_ATTRIB) strcpy(info, " IN_ATTRIB");
-    if (i->mask & IN_CLOSE_NOWRITE) strcpy(info, " IN_CLOSE_NOWRITE");
-    if (i->mask & IN_CLOSE_WRITE) strcpy(info, " IN_CLOSE_WRITE");
-    if (i->mask & IN_CREATE) strcpy(info, " IN_CREATE");
-    if (i->mask & IN_DELETE) strcpy(info, " IN_DELETE");
-    if (i->mask & IN_DELETE_SELF) strcpy(info, " IN_DELETE_SELF");
-    if (i->mask & IN_IGNORED) strcpy(info, " IN_IGNORED");
-    if (i->mask & IN_ISDIR) strcpy(info, " IN_ISDIR");
-    if (i->mask & IN_MODIFY) strcpy(info, " IN_MODIFY");
-    if (i->mask & IN_MOVE_SELF) strcpy(info, " IN_MOVE_SELF");
-    if (i->mask & IN_MOVED_FROM) strcpy(info, " IN_MOVED_FROM");
-    if (i->mask & IN_MOVED_TO) strcpy(info, " IN_MOVED_TO");
-    if (i->mask & IN_OPEN) strcpy(info, " IN_OPEN");
-    if (i->mask & IN_Q_OVERFLOW) strcpy(info, " IN_Q_OVERFLOW");
-    if (i->mask & IN_UNMOUNT) strcpy(info, " IN_UNMOUNT");
+    strcat(info, " change: ");
+    if (i->mask & IN_ACCESS) strcat(info, "IN_ACCESS");
+    if (i->mask & IN_ATTRIB) strcat(info, "IN_ATTRIB");
+    if (i->mask & IN_CLOSE_NOWRITE) strcat(info, "IN_CLOSE_NOWRITE");
+    if (i->mask & IN_CLOSE_WRITE) strcat(info, "IN_CLOSE_WRITE");
+    if (i->mask & IN_CREATE) strcat(info, "IN_CREATE");
+    if (i->mask & IN_DELETE) strcat(info, "IN_DELETE");
+    if (i->mask & IN_DELETE_SELF) strcat(info, "IN_DELETE_SELF");
+    if (i->mask & IN_IGNORED) strcat(info, "IN_IGNORED");
+    if (i->mask & IN_ISDIR) strcat(info, "IN_ISDIR");
+    if (i->mask & IN_MODIFY) strcat(info, "IN_MODIFY");
+    if (i->mask & IN_MOVE_SELF) strcat(info, "IN_MOVE_SELF");
+    if (i->mask & IN_MOVED_FROM) strcat(info, "IN_MOVED_FROM");
+    if (i->mask & IN_MOVED_TO) strcat(info, "IN_MOVED_TO");
+    if (i->mask & IN_OPEN) strcat(info, "IN_OPEN");
+    if (i->mask & IN_Q_OVERFLOW) strcat(info, "IN_Q_OVERFLOW");
+    if (i->mask & IN_UNMOUNT) strcat(info, "IN_UNMOUNT");
     strcat(info, "\n");
     return info;
 }
 
 //add file to watched
-int watch_file(char *path) {
+int watch_directory(char *path) {
+    struct stat s;
+    if (stat(path, &s) != 0 || !S_ISDIR(s.st_mode))return -1;
     return inotify_add_watch(inotify_fd, path, IN_ALL_EVENTS);
 }
 
-//check events
+//check file events
 void read_file_events() {
     char buf[BUF_LEN];
     struct inotify_event *event;
+    printf("Before read\n");
     ssize_t nread = read(inotify_fd, buf, BUF_LEN);
+    printf("After read\n");
     if (nread == -1 && errno != EAGAIN) error("read from inotify");
-
+    if (nread <= 0)return;
     printf("Read %ld bytes from inotify fd\n", (long) nread);
 
-    /* Process all of the events in buffer returned by read() */
-
+    //process events in buffer
     for (char *p = buf; p < buf + nread;) {
         event = (struct inotify_event *) p;
         char *info = strinotify(event);
@@ -149,16 +153,18 @@ void init() {
     inotify_fd = inotify_init(); //inotify instance
     if (inotify_fd == -1)
         features[INOTIFY] = 0;
-    else {
-        //set to non-blocking
-        int flags = fcntl(inotify_fd, F_GETFL);
-        fcntl(inotify_fd, F_SETFL, flags & ~O_NONBLOCK);
-    }
+    else fcntl(inotify_fd, F_SETFL, O_NONBLOCK); //set to non-blocking
 }
 
 int main() {
     printf("We who think we are about to die will laugh at anything.\n");
-    printf("P: %lu U: %lu Load: %lf Total mem: %llu Available: %llu %lf", processes_total(), users_total(), load_avg(),
+    printf("P: %lu U: %lu Load: %lf Total mem: %llu Available: %llu %lf\n", processes_total(), users_total(),
+           load_avg(),
            mem_total(), mem_available(), (double) mem_available() / mem_total());
+    init();
+    if (watch_directory("/home/nuk") != 0)printf("Directory unavailable.\n");
+    read_file_events();
+    sleep(10);
+    read_file_events();
     return 0;
 }
