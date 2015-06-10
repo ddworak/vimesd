@@ -23,7 +23,7 @@
 #define INOTIFY 4
 #define FEATURES 5
 #define NAMESZ 256
-#define BUF_LEN (32 * (sizeof(struct inotify_event) + 256))
+#define BUF_LEN 4096
 #define MSG_LEN (BUF_LEN+NAMESZ+256)
 #define error(msg) {perror(msg); exit(1);}
 
