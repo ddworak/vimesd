@@ -214,7 +214,7 @@ int main(int argc, char *argv[]) {
     mtv.tv_usec = 0;
     //parse args
     strcpy(port, argv[1]);
-    printf("Ninety per cent of most magic merely consists of knowing one extra fact.\n");
+    printf("Ninety percent of most magic merely consists of knowing one extra fact.\n");
     init();
     conn();
     FD_ZERO(&master);
@@ -235,14 +235,14 @@ int main(int argc, char *argv[]) {
             }
         if (!on_next && tv.tv_sec != 0)on_next = 1;
         else {
-            system("clear");
-            printf("Press any key to set client features.\n");
+            for(int i=0; i<30; i++)printf("\n");
             for (int i = 0; i < MAXCLIENTS; i++) {
                 if (fds[i] != -1) {
                     printf("\n%d. %s %s %s", i, addresses[i], names[i], last_status[i]);
                     if (!strcmp(last_status[i], "Down\n"))free_client(i);
                 }
             }
+            printf("Press any key to set client features.\n");
             on_next = 0;
         }
     }
