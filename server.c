@@ -143,13 +143,13 @@ void restore_stdin() {
 void quit() {
     for (int i = 0; i <= biggest; i++)
         if (FD_ISSET(i, &master))close(i);
-    restore_stdin();
+    //restore_stdin();
     exit(0);
 }
 
 void init() {
     for (int i = 0; i < MAXCLIENTS; i++)free_client(i);
-    set_stdin();
+    //set_stdin();
 }
 
 void free_client(int i) {
@@ -163,8 +163,7 @@ void free_client(int i) {
 
 void handle_stdin() {
     char command[10];
-    getchar();
-    system("clear");
+    for(int i = 0; i<30;i++)printf("\n");
     printf("\nEnter client number: ");
     if (!fgets(command, 10, stdin))return;
     int i = atoi(command);
@@ -242,7 +241,7 @@ int main(int argc, char *argv[]) {
                     if (!strcmp(last_status[i], "Down\n"))free_client(i);
                 }
             }
-            printf("Press any key to set client features.\n");
+            printf("Press enter to set client features.\n");
             on_next = 0;
         }
     }
