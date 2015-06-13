@@ -171,7 +171,7 @@ double load_avg() {
 }
 
 void status_msg(char *msg) {
-    strcpy(msg, "");
+    strcpy(msg, " ");
     char temp[512];
     if (subscribed[USERS]) {
         sprintf(temp, "Users: %lu ", users_total());
@@ -197,7 +197,6 @@ void status_msg(char *msg) {
         strcat(msg, t);
         free(t);
     }
-    strcat(msg, "\n");
 }
 
 void init() {
@@ -275,15 +274,16 @@ int main(int argc, char *argv[]) {
     conn(argv[2], argv[3]);
     FD_ZERO(&master);
     FD_SET(sock_fd, &master);
-    struct msg buf;
-    strcpy(buf.name, name);
-    status_msg(buf.text);
     for (ever) {
-        for (int i = 0; i < FEATURES; i++)
-            buf.features[i] = features[i];
+        struct msg buf;
+        strcpy(buf.name, name);
         status_msg(buf.text);
+        for (int i = 0; i < FEATURES; i++) {
+            buf.features[i] = features[i];
+        }
         nbytes = send(sock_fd, &buf, sizeof(struct msg), 0);
         if (nbytes <= 0) error("disconnected");
+        printf("%d %s %s\n", (int) nbytes,buf.name,buf.text);
         readfds = master;
         tv = mtv;
         select(sock_fd + 1, &readfds, NULL, NULL, &tv);

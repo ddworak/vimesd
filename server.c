@@ -1,6 +1,5 @@
 #define _XOPEN_SOURCE 500
 
-#include <sys/inotify.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,7 +9,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <termios.h>
 
 #define ever ;;
 
@@ -42,7 +40,7 @@ void free_client(int i);
 
 int sock_fd;
 int biggest;
-int available = MAXCLIENTS;
+int available = 0;
 fd_set master;
 char port[10];
 char names[MAXCLIENTS][NAMESZ];
@@ -50,7 +48,6 @@ int fds[MAXCLIENTS];
 char addresses[MAXCLIENTS][ADDR_LEN];
 char last_status[MAXCLIENTS][MSG_LEN];
 char features[MAXCLIENTS][FEATURES];
-static struct termios oldt;
 
 void *get_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in *) sa)->sin_addr);
@@ -110,7 +107,7 @@ void handle_reg() {
 void handle_msg(int fd) { //sth waiting
     struct msg buf;
     ssize_t nbytes;
-    if ((nbytes = recv(fd, &buf, sizeof(struct msg), 0)) == -1) error("recv");
+    if ((nbytes = recv(fd, &buf, sizeof(struct msg), MSG_WAITALL)) == -1) error("recv");
     int i;
     for (i = 0; i < MAXCLIENTS && fds[i] != fd; i++); //find id
     if (nbytes <= 0) {
@@ -128,28 +125,14 @@ void handle_msg(int fd) { //sth waiting
     }
 }
 
-void set_stdin() {
-    static struct termios newt;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON); //no stdin buffering to return, select asap
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-}
-
-void restore_stdin() {
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-}
-
 void quit() {
     for (int i = 0; i <= biggest; i++)
         if (FD_ISSET(i, &master))close(i);
-    //restore_stdin();
     exit(0);
 }
 
 void init() {
     for (int i = 0; i < MAXCLIENTS; i++)free_client(i);
-    //set_stdin();
 }
 
 void free_client(int i) {
@@ -237,11 +220,11 @@ int main(int argc, char *argv[]) {
             for(int i=0; i<30; i++)printf("\n");
             for (int i = 0; i < MAXCLIENTS; i++) {
                 if (fds[i] != -1) {
-                    printf("\n%d. %s %s %s", i, addresses[i], names[i], last_status[i]);
+                    printf("\n%d. %s %s %s\n", i, addresses[i], names[i], last_status[i]);
                     if (!strcmp(last_status[i], "Down\n"))free_client(i);
                 }
             }
-            printf("Press enter to set client features.\n");
+            printf("\nPress enter to set client features.\n");
             on_next = 0;
         }
     }
