@@ -149,11 +149,10 @@ void handle_stdin() {
     for(int i = 0; i<30;i++)printf("\n");
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
-    printf("Consumed\n");
     printf("\nEnter client number: ");
     if (!fgets(command, 10, stdin))return;
     int i = atoi(command);
-    if (i < 0 || i >= MAXCLIENTS || fds[i] == -1)return;
+    if (i < 0 || i >= MAXCLIENTS-available || fds[i] == -1)return;
     printf("\nAvailable features (%d): \n", i);
     if (features[i][USERS])printf("u: Number of users\n");
     if (features[i][MEMORY])printf("m: Memory\n");

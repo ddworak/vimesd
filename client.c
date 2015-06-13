@@ -253,7 +253,7 @@ void handle_command(struct fmsg fmsg) {
         perror("inotify_add_watch");
         return;
     }
-    subscribed[(int) fmsg.feature] = 1;
+    subscribed[(int) fmsg.feature] ^= 1;
 }
 
 int main(int argc, char *argv[]) {
