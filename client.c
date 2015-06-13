@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <sys/syslog.h>
 
 #define ever ;;
 
@@ -85,7 +86,7 @@ char *check_file_events() {
     strcpy(res, "");
     struct inotify_event *event;
     ssize_t nread = read(inotify_fd, buf, BUF_LEN);
-    if (nread == -1 && errno != EAGAIN) error("read from inotify");
+    if (nread == -1 && errno != EAGAIN) syslog(LOG_ERR, "vimesd: read from inotify");
     if (nread <= 0)return res;
 
     //process events in buffer
@@ -117,7 +118,7 @@ unsigned long processes_total() {
         closedir(dir);
     }
     else {
-        perror("opendir");
+        syslog(LOG_INFO, "vimesd: could not open /proc");
         features[PROCESSES] = 0;
         return 0;
     }
@@ -130,6 +131,7 @@ unsigned long users_total() {
     struct utmp usr;
     FILE *ufp = fopen(_PATH_UTMP, "r");
     if (!ufp) {
+        syslog(LOG_INFO, "vimesd: users total unavailable");
         features[USERS] = 0;
         return 0;
     }
@@ -156,6 +158,11 @@ unsigned long long mem_available() {
 //load avg in 1s
 double load_avg() {
     FILE *fp = fopen("/proc/stat", "r");
+    if (!fp) {
+        features[LOAD] = 0;
+        syslog(LOG_INFO, "vimesd: /proc/stat unavailable");
+        return 0;
+    }
     long double a[4], b[4];
     fscanf(fp, "%*s %Lf %Lf %Lf %Lf", &a[0], &a[1], &a[2], &a[3]);
     fclose(fp);
@@ -206,7 +213,7 @@ void init() {
     inotify_fd = inotify_init(); //inotify instance
     if (inotify_fd == -1) {
         features[INOTIFY] = 0;
-        printf("No inotify available\n");
+        syslog(LOG_INFO, "vimesd: no inotify available\n");
     }
     else fcntl(inotify_fd, F_SETFL, O_NONBLOCK); //set to non-blocking
 }
@@ -250,7 +257,7 @@ void conn(char *host, char *port) {
 
 void handle_command(struct fmsg fmsg) {
     if (fmsg.feature == INOTIFY) if (watch_directory(fmsg.path) == -1) {
-        perror("inotify_add_watch");
+        syslog(LOG_ERR, "vimesd: inotify_add_watch");
         return;
     }
     subscribed[(int) fmsg.feature] ^= 1;
@@ -271,6 +278,31 @@ int main(int argc, char *argv[]) {
     printf("We who think we are about to die will laugh at anything.\n");
     init();
     conn(argv[2], argv[3]);
+
+    //daemonize
+    pid_t pid = fork();
+    if (pid < 0) exit(-1);
+    if (pid > 0)exit(EXIT_SUCCESS);
+    umask(0);
+    openlog(argv[0], LOG_NOWAIT | LOG_PID, LOG_USER); //connection to syslog
+    syslog(LOG_NOTICE, "vimesd: daemon successfully started.\n");
+    pid_t sid;
+    sid = setsid(); //try to create new process group
+    if (sid < 0) {
+        printf("vimesd: could not create process group\n");
+        exit(EXIT_FAILURE);
+    }
+    if ((chdir("/")) < 0) { //change working directory to /
+        printf("vimesd: could not change working directory to /\n");
+        exit(EXIT_FAILURE);
+    }
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+    //daemonized
+
+    //check once for availability
+
     FD_ZERO(&master);
     FD_SET(sock_fd, &master);
     for (ever) {
@@ -288,7 +320,7 @@ int main(int argc, char *argv[]) {
         if (FD_ISSET(sock_fd, &readfds)) {
             struct fmsg rbuf;
             if (recv(sock_fd, &rbuf, sizeof(struct fmsg), MSG_WAITALL) <= 0) {
-                printf("Disconnected\n");
+                syslog(LOG_DAEMON, "vimesd: disconnected\n");
                 return 0;
             }
             handle_command(rbuf);
