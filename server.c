@@ -147,6 +147,9 @@ void free_client(int i) {
 void handle_stdin() {
     char command[10];
     for(int i = 0; i<30;i++)printf("\n");
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+    printf("Consumed\n");
     printf("\nEnter client number: ");
     if (!fgets(command, 10, stdin))return;
     int i = atoi(command);
@@ -157,7 +160,8 @@ void handle_stdin() {
     if (features[i][PROCESSES])printf("p: Running processes\n");
     if (features[i][LOAD])printf("l: Load avg\n");
     if (features[i][INOTIFY])printf("i: Directory changes\n");
-    int c = getchar();
+    if (!fgets(command, 10, stdin))return;
+    c = command[0];
     struct fmsg buf;
     strcpy(buf.path, "");
     switch (c) {

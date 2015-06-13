@@ -45,7 +45,7 @@ struct fmsg {
 };
 
 //format info from inotify_event structure
-char *strinotify(struct inotify_event *i) {
+char *strinotify(struct inotify_event* i) {
     char *info = (char *) malloc(512);
     strcpy(info, "");
     if (i->len > 0)strcat(info, i->name);
@@ -87,7 +87,6 @@ char *check_file_events() {
     ssize_t nread = read(inotify_fd, buf, BUF_LEN);
     if (nread == -1 && errno != EAGAIN) error("read from inotify");
     if (nread <= 0)return res;
-    //printf("Read %ld bytes from inotify fd\n", (long) nread);
 
     //process events in buffer
     for (char *p = buf; p < buf + nread;) {
@@ -283,13 +282,12 @@ int main(int argc, char *argv[]) {
         }
         nbytes = send(sock_fd, &buf, sizeof(struct msg), 0);
         if (nbytes <= 0) error("disconnected");
-        printf("%d %s %s\n", (int) nbytes,buf.name,buf.text);
         readfds = master;
         tv = mtv;
         select(sock_fd + 1, &readfds, NULL, NULL, &tv);
         if (FD_ISSET(sock_fd, &readfds)) {
             struct fmsg rbuf;
-            if (recv(sock_fd, &rbuf, sizeof(struct fmsg), 0) <= 0) {
+            if (recv(sock_fd, &rbuf, sizeof(struct fmsg), MSG_WAITALL) <= 0) {
                 printf("Disconnected\n");
                 return 0;
             }
