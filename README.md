@@ -1,5 +1,5 @@
 # vimesd
-###Simple monitoring system based on UNIX system mechanisms
+### Simple monitoring system based on UNIX system mechanisms
 
 Assignment implemented as a part of Operating Systems course at AGH University of Science and Technology.
 
